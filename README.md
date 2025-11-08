@@ -1,0 +1,2 @@
+# httpclient
+Just a simple http client using libopenssl. On Windows, put libssl.dll and libcrypto.dll in the same directory as the executable. On Linux this library does an attempt to find libssl.so in any of the common library paths. 
