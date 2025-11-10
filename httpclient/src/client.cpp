@@ -385,7 +385,7 @@ namespace http
         }
 
         std::string responseHeader;
-        
+
         // Read the response header
         if(read_header(&connection, responseHeader) != header_error_none)
         {
@@ -564,6 +564,9 @@ namespace http
 
         connection->s.addressFamily = addressFamily;
 
+        const int noDelayFlag = 1;
+        set_socket_option(connection, IPPROTO_TCP, TCP_NODELAY, &noDelayFlag, sizeof(int));
+
         if(ipVersion == ip_version_ip_v4) 
 		{
             connection->s.address.ipv4.sin_family = AF_INET;
@@ -717,6 +720,15 @@ namespace http
         }
 
         return true; // All bytes sent successfully
+    }
+
+    bool client::set_socket_option(connection_t *connection, int level, int option, const void *value, uint32_t valueSize)
+    {
+    #ifdef _WIN32
+        return setsockopt(connection->s.fd, level, option, (char*)value, valueSize) != 0 ? false : true;
+    #else
+        return setsockopt(connection->s.fd, level, option, value, valueSize) != 0 ? false : true;
+    #endif
     }
 
     header_error client::read_header(connection_t *connection, std::string &header)

@@ -164,6 +164,7 @@ namespace http
 		static int64_t peek(connection_t *connection, void *buffer, size_t size);
 		static int64_t write(connection_t *connection, const void *buffer, size_t size);
         static bool write_all_bytes(connection_t *connection, const void *buffer, size_t size);
+        static bool set_socket_option(connection_t *connection, int level, int option, const void *value, uint32_t valueSize);
         static header_error read_header(connection_t *connection, std::string &header);
         static bool parse_header(const std::string &responseText, headers &header, int &statusCode, uint64_t &contentLength);
         static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp);
