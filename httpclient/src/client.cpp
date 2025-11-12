@@ -746,10 +746,36 @@ namespace http
 
         char *pBuffer = buffer.data();
 
+        auto find_header_end = [] (const char *text, size_t size) -> int64_t {
+            char chars [] = {'\r', '\n', '\r', '\n'};
+            size_t index = 0;
+
+            for(size_t i = 0; i < size; i++)
+            {
+                if(text[i] == chars[0])
+                {
+                    if(i < size - 4)
+                    {
+                        if(text[i+1] == chars[1] &&
+                            text[i+2] == chars[2] &&
+                            text[i+3] == chars[3])
+                        {
+                            return i;
+                        }
+                    }
+                }
+            }
+
+            return -1;
+        };
+
         // Peek to find the end of the header
         while (true) 
         {
             int64_t bytesPeeked = peek(connection, pBuffer, bufferSize);
+
+            if (bytesPeeked < 0)
+                return header_error_failed_to_peek;
 
             totalHeaderSize += bytesPeeked;
 
@@ -759,21 +785,26 @@ namespace http
                 return header_error_max_size_exceeded;
             }
 
-            if (bytesPeeked < 0)
-                return header_error_failed_to_peek;
-
             //Don't loop indefinitely...
             if(bytesPeeked == 0)
                 break;
             
             // Look for the end of the header (double CRLF)
-            const char* endOfHeader = std::search(pBuffer, pBuffer + bytesPeeked, "\r\n\r\n", "\r\n\r\n" + 4);
-            if (endOfHeader != pBuffer + bytesPeeked) 
+            int64_t end = find_header_end(pBuffer, bytesPeeked);
+
+            if(end >= 0)
             {
-                headerEnd = endOfHeader - pBuffer + 4; // Include the length of the CRLF
+                headerEnd = end + 4; //Include the length of the CRLF
                 endFound = true;
-                break;
+                break;                
             }
+            // const char* endOfHeader = std::search(pBuffer, pBuffer + bytesPeeked, "\r\n\r\n", "\r\n\r\n" + 4);
+            // if (endOfHeader != pBuffer + bytesPeeked) 
+            // {
+            //     headerEnd = endOfHeader - pBuffer + 4; // Include the length of the CRLF
+            //     endFound = true;
+            //     break;
+            // }
         }
 
         if(!endFound)
