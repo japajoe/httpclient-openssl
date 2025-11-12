@@ -744,30 +744,17 @@ namespace http
         int64_t totalHeaderSize = 0;
         bool endFound = false;
 
-        char *pBuffer = buffer.data();
-
-        auto find_header_end = [] (const char *text, size_t size) -> int64_t {
-            char chars [] = {'\r', '\n', '\r', '\n'};
-            size_t index = 0;
-
-            for(size_t i = 0; i < size; i++)
-            {
-                if(text[i] == chars[0])
-                {
-                    if(i < size - 4)
-                    {
-                        if(text[i+1] == chars[1] &&
-                            text[i+2] == chars[2] &&
-                            text[i+3] == chars[3])
-                        {
-                            return i;
-                        }
-                    }
+        auto find_header_end = [] (const char* haystack, const char* needle, size_t haystackLength, size_t needleLength) -> int64_t {
+            for (size_t i = 0; i <= haystackLength - needleLength; ++i) {
+                if (memcmp(haystack + i, needle, needleLength) == 0) {
+                    return static_cast<int>(i); // Found the needle, return the index
                 }
             }
-
-            return -1;
+            return -1; // Not found
         };
+
+
+        char *pBuffer = buffer.data();
 
         // Peek to find the end of the header
         while (true) 
@@ -790,7 +777,8 @@ namespace http
                 break;
             
             // Look for the end of the header (double CRLF)
-            int64_t end = find_header_end(pBuffer, bytesPeeked);
+            //int64_t end = find_header_end(pBuffer, bytesPeeked);
+            int64_t end = find_header_end(pBuffer, "\r\n\r\n", bytesPeeked, 4);
 
             if(end >= 0)
             {
@@ -798,6 +786,7 @@ namespace http
                 endFound = true;
                 break;                
             }
+
             // const char* endOfHeader = std::search(pBuffer, pBuffer + bytesPeeked, "\r\n\r\n", "\r\n\r\n" + 4);
             // if (endOfHeader != pBuffer + bytesPeeked) 
             // {
