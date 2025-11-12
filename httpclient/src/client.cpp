@@ -753,7 +753,6 @@ namespace http
             return -1; // Not found
         };
 
-
         char *pBuffer = buffer.data();
 
         // Peek to find the end of the header
@@ -777,7 +776,6 @@ namespace http
                 break;
             
             // Look for the end of the header (double CRLF)
-            //int64_t end = find_header_end(pBuffer, bytesPeeked);
             int64_t end = find_header_end(pBuffer, "\r\n\r\n", bytesPeeked, 4);
 
             if(end >= 0)
