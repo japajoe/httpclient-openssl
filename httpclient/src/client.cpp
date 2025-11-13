@@ -276,7 +276,7 @@ namespace http
         {
             //"libssl.so"
         #ifdef _WIN32
-            const char *curlPath = "libssl.dll";
+            const char *curlPath = "libssl-3-x64.dll";
         #else
             char *curlPath = pli_find_library_path("libssl.so");            
         #endif
