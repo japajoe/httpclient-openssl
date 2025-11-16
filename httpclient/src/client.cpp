@@ -154,7 +154,7 @@ namespace http
         return false;
     }
 
-    static bool resolve(const std::string &uri, std::string &ip, uint16_t &port, std::string &hostname) 
+    static bool resolve(const std::string &uri, std::string &ip, uint16_t &port, std::string &hostname, bool ignoreIPv6)
 	{
         std::string scheme, host, path;
 
@@ -229,7 +229,10 @@ namespace http
                 addr = &(ipv4->sin_addr);
             } 
 			else 
-			{ // IPv6
+			{ 
+                // IPv6
+                if(ignoreIPv6)
+                    continue;
                 struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)p->ai_addr;
                 addr = &(ipv6->sin6_addr);
             }
@@ -536,7 +539,7 @@ namespace http
         std::string ip;
         uint16_t port;
         
-        if(!resolve(URL, ip, port, hostName)) 
+        if(!resolve(URL, ip, port, hostName, true)) 
         {
             write_error("client::connect: failed to resolve IP from URI " + URL);
             return false;
