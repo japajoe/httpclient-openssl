@@ -23,4 +23,8 @@ include_directories(
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE -ldl)
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} ws2_32)
+elseif(UNIX)
+    target_link_libraries(${PROJECT_NAME} pthread -ldl)
+endif()
