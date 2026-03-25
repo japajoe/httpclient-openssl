@@ -803,9 +803,11 @@ namespace Http
         initialContent = nullptr;
         initialContentLength = 0;
         initialContentConsumed = 0;
+        bytesRemainingInChunk = 0;
+        firstChunk = true;
     }
 
-    ContentStream::ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength)
+    ContentStream::ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<TransferEncoding> &encoding)
     {
         this->socket = socket;
         this->ssl = ssl;
@@ -825,6 +827,12 @@ namespace Http
 
             initialContentConsumed = 0;
         }
+
+        for(size_t i = 0; i < encoding.size(); i++)
+            this->encoding.push_back(encoding[i]);
+        
+        bytesRemainingInChunk = 0;
+        firstChunk = true;
     }
 
     ContentStream::~ContentStream()
@@ -844,7 +852,7 @@ namespace Http
         }
     }
 
-    int64_t ContentStream::Read(void *buffer, size_t size)
+    int64_t ContentStream::ReadInternal(void *buffer, size_t size)
     {
         if (socket == nullptr)
             return 0;
@@ -878,6 +886,78 @@ namespace Http
             return SSL_read(ssl, buffer, size);
         else
             return socket->Read(buffer, size);
+    }
+
+    std::string ContentStream::ReadLineInternal()
+    {
+        std::string line;
+        char c;
+        while (ReadInternal(&c, 1) > 0)
+        {
+            line += c;
+            if (line.size() >= 2 && line.substr(line.size() - 2) == "\r\n")
+            {
+                return line.substr(0, line.size() - 2);
+            }
+        }
+        return line;
+    }
+
+    int64_t ContentStream::ReadChunked(void* buffer, size_t size)
+    {
+        // If we finished the previous chunk, we need to parse the next header
+        if (bytesRemainingInChunk == 0)
+        {
+            // If this isn't the very first chunk, consume the trailing \r\n from the previous one
+            if (!firstChunk)
+            {
+                char trailer[2];
+                ReadInternal(trailer, 2); 
+            }
+
+            std::string hexLine = ReadLineInternal(); // Helper to read until \r\n
+            if (hexLine.empty())
+            {
+                return 0;
+            }
+
+            // Parse hex (handle extensions like "ff;ext=val")
+            size_t semiColon = hexLine.find(';');
+            bytesRemainingInChunk = std::stoll(hexLine.substr(0, semiColon), nullptr, 16);
+            firstChunk = false;
+
+            // Final chunk (size 0) reached
+            if (bytesRemainingInChunk == 0)
+            {
+                char endTrailer[2];
+                ReadInternal(endTrailer, 2); // Consume final \r\n
+                return 0; 
+            }
+        }
+
+        // Determine how much we can actually read right now
+        size_t toRead = std::min(size, static_cast<size_t>(bytesRemainingInChunk));
+
+        // Read the actual data from the socket into the user's buffer
+        int64_t bytesRead = ReadInternal(buffer, toRead);
+
+        if (bytesRead > 0)
+        {
+            bytesRemainingInChunk -= bytesRead;
+        }
+
+        return bytesRead;
+    }
+
+    int64_t ContentStream::Read(void *buffer, size_t size)
+    {
+        if(encoding.size() == 0)
+            return ReadInternal(buffer, size);
+
+        if(encoding.back() == TransferEncoding::Chunked)
+            return ReadChunked(buffer, size);
+
+        return ReadInternal(buffer, size); // Other encodings not implemented yet
     }
 
     int64_t ContentStream::Write(const void *buffer, size_t size)
@@ -1023,6 +1103,23 @@ namespace Http
             }
 
             return true;
+        }
+        else
+        {
+            if(encoding.size() == 0)
+                return false;
+            if(encoding.back() == TransferEncoding::Chunked)
+            {
+                char buffer[1024] = {0};
+                uint64_t bytesRead = 0;
+
+                while((bytesRead = content->Read(buffer, 1023)) > 0)
+                {
+                    str.append(buffer, bytesRead);
+                }
+
+                return str.size() > 0;
+            }
         }
 
         return false;
@@ -1384,11 +1481,11 @@ namespace Http
                     if (leftOverSize > 0)
                     {
                         std::string initialContent = responseHeader.substr(headerTotalSize);
-                        response->content = std::make_shared<ContentStream>(socket, ssl, initialContent.data(), initialContent.size());
+                        response->content = std::make_shared<ContentStream>(socket, ssl, initialContent.data(), initialContent.size(), response->encoding);
                     }
                     else
                     {
-                        response->content = std::make_shared<ContentStream>(socket, ssl, nullptr, 0);
+                        response->content = std::make_shared<ContentStream>(socket, ssl, nullptr, 0, response->encoding);
                     }
 
                     return response;
@@ -1532,9 +1629,7 @@ namespace Http
                     for(size_t i = 0; i < options.size(); i++)
                     {
                         std::string option = toLower(options[i]);
-                        if(option == "identity")
-                            response->encoding.push_back(TransferEncoding::Identity);
-                        else if(option == "chunked")
+                        if(option == "chunked")
                             response->encoding.push_back(TransferEncoding::Chunked);
                         else if(option == "compress")
                             response->encoding.push_back(TransferEncoding::Compress);
@@ -1542,8 +1637,6 @@ namespace Http
                             response->encoding.push_back(TransferEncoding::Deflate);
                         else if(option == "gzip")
                             response->encoding.push_back(TransferEncoding::GZip);
-                        else
-                            response->encoding.push_back(TransferEncoding::None);
                     }
                 }
             }

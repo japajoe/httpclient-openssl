@@ -4,7 +4,7 @@
 int main()
 {
     Http::Client client;
-    Http::Request request(Http::Method::Get, "https://api.ipify.org");
+    Http::Request request(Http::Method::Get, "https://github.com");
 
     auto response = client.Send(request);
 
@@ -17,14 +17,15 @@ int main()
             std::cout << key << ": " << value << '\n';
         }
 
-        //If chunked encoding is used, will not work because content length is 0
         std::string content;
+        
         if(response->GetContentAsString(content))
         {
             std::cout << content << '\n';
         }
-    }
 
+        std::cout << content << '\n';
+    }
 
     return 0;
 }

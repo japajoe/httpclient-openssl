@@ -33,83 +33,6 @@ namespace Http
         int32_t descriptor;
     };
 
-    enum SeekOrigin
-    {
-        Begin,
-        Current,
-        End
-    };
-
-    enum FileAccess
-    {
-        Read,
-        Write,
-        ReadWrite
-    };
-
-    class Stream
-    {
-    public:
-        virtual ~Stream() = default;
-        virtual int64_t Read(void *buffer, size_t size) = 0;
-        virtual int64_t Write(const void *buffer, size_t size) = 0;
-        virtual int64_t Seek(int64_t offset, SeekOrigin origin) = 0;
-        virtual int64_t GetReadOffset() = 0;
-        int64_t GetLength() const { return length; }
-    protected:
-        int64_t readPosition = 0;
-        int64_t writePosition = 0;
-        int64_t length = 0;
-    };
-
-    class MemoryStream : public Stream
-    {
-    public:
-        MemoryStream(void *memory, size_t size, bool copyMemory);
-        ~MemoryStream();
-        int64_t Read(void *buffer, size_t size) override;
-        int64_t Write(const void *buffer, size_t size) override;
-        int64_t Seek(int64_t offset, SeekOrigin origin) override;
-        int64_t GetReadOffset() override;
-    private:
-        void *memory;
-        size_t size;
-        bool copyMemory;
-    };
-
-    class FileStream : public Stream
-    {
-    public:
-        FileStream(const std::string &filePath, FileAccess access);
-        ~FileStream();
-        int64_t Read(void *buffer, size_t size) override;
-        int64_t Write(const void *buffer, size_t size) override;
-        int64_t Seek(int64_t offset, SeekOrigin origin) override;
-        int64_t GetReadOffset() override;
-    private:
-        FileAccess access;
-        std::fstream file;
-    };
-
-    class ContentStream : public Stream
-    {
-    public:
-        ContentStream();
-        ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength);
-        ~ContentStream();
-        int64_t Read(void *buffer, size_t size) override;
-        int64_t Write(const void *buffer, size_t size) override;
-        int64_t Seek(int64_t offset, SeekOrigin origin) override;
-        int64_t GetReadOffset() override;
-        void Dispose();
-    private:
-        std::shared_ptr<Socket> socket;
-        SSL *ssl;
-        void *initialContent;
-        uint64_t initialContentLength;
-        uint64_t initialContentConsumed;        
-    };
-
     enum class Method
     {
         Get,
@@ -201,12 +124,93 @@ namespace Http
 
     enum class TransferEncoding
     {
-        None = 0,
-        Identity = None,
         Chunked,
         Compress,
         Deflate,
         GZip
+    };
+
+    enum SeekOrigin
+    {
+        Begin,
+        Current,
+        End
+    };
+
+    enum FileAccess
+    {
+        Read,
+        Write,
+        ReadWrite
+    };
+
+    class Stream
+    {
+    public:
+        virtual ~Stream() = default;
+        virtual int64_t Read(void *buffer, size_t size) = 0;
+        virtual int64_t Write(const void *buffer, size_t size) = 0;
+        virtual int64_t Seek(int64_t offset, SeekOrigin origin) = 0;
+        virtual int64_t GetReadOffset() = 0;
+        int64_t GetLength() const { return length; }
+    protected:
+        int64_t readPosition = 0;
+        int64_t writePosition = 0;
+        int64_t length = 0;
+    };
+
+    class MemoryStream : public Stream
+    {
+    public:
+        MemoryStream(void *memory, size_t size, bool copyMemory);
+        ~MemoryStream();
+        int64_t Read(void *buffer, size_t size) override;
+        int64_t Write(const void *buffer, size_t size) override;
+        int64_t Seek(int64_t offset, SeekOrigin origin) override;
+        int64_t GetReadOffset() override;
+    private:
+        void *memory;
+        size_t size;
+        bool copyMemory;
+    };
+
+    class FileStream : public Stream
+    {
+    public:
+        FileStream(const std::string &filePath, FileAccess access);
+        ~FileStream();
+        int64_t Read(void *buffer, size_t size) override;
+        int64_t Write(const void *buffer, size_t size) override;
+        int64_t Seek(int64_t offset, SeekOrigin origin) override;
+        int64_t GetReadOffset() override;
+    private:
+        FileAccess access;
+        std::fstream file;
+    };
+
+    class ContentStream : public Stream
+    {
+    public:
+        ContentStream();
+        ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<TransferEncoding> &encoding);
+        ~ContentStream();
+        int64_t Read(void *buffer, size_t size) override;
+        int64_t Write(const void *buffer, size_t size) override;
+        int64_t Seek(int64_t offset, SeekOrigin origin) override;
+        int64_t GetReadOffset() override;
+        void Dispose();
+    private:
+        std::shared_ptr<Socket> socket;
+        SSL *ssl;
+        void *initialContent;
+        uint64_t initialContentLength;
+        uint64_t initialContentConsumed;
+        uint64_t bytesRemainingInChunk;
+        bool firstChunk;
+        std::vector<TransferEncoding> encoding;
+        int64_t ReadInternal(void *buffer, size_t size);
+        std::string ReadLineInternal();
+        int64_t ReadChunked(void* buffer, size_t size);
     };
 
     class Client;
