@@ -1,5 +1,5 @@
-#ifndef Client_HPP
-#define Client_HPP
+#ifndef HTTPCLIENT_HPP
+#define HTTPCLIENT_HPP
 
 #include <cstdint>
 #include <cstdlib>
