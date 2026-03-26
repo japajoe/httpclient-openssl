@@ -68,9 +68,10 @@ namespace Http
 
     void zlib_unload_library(void)
     {
-        if(!pLibraryHandleLibZ)
-            return;
-        Runtime::UnloadLibrary(pLibraryHandleLibZ);
-        pLibraryHandleLibZ = nullptr;
+        if(pLibraryHandleLibZ)
+        {
+            Runtime::UnloadLibrary(pLibraryHandleLibZ);
+            pLibraryHandleLibZ = nullptr;
+        }
     }
 }

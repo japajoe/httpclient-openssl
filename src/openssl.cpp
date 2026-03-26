@@ -46,11 +46,13 @@ namespace Http
 
     static void OnSignal(int s)
     {
+    #if defined(HTTP_PLATFORM_LINUX)
         if (s == SIGPIPE)
         {
             printf("Broken pipe\n");
             return;
         }
+    #endif
     }
 
     bool SSL_library_load(void)
@@ -99,7 +101,7 @@ namespace Http
             SSL_CTX_free_ptr = (SSL_CTX_free_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_free");
             SSL_CTX_set_verify_ptr = (SSL_CTX_set_verify_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_set_verify");
 
-#if defined(HTTP_PLATFORM_UNIX)
+#if defined(HTTP_PLATFORM_LINUX)
             signal(SIGPIPE, OnSignal);
 #endif
             return true;
@@ -110,13 +112,16 @@ namespace Http
 
     void SSL_library_unload(void)
     {
-        if (!pLibraryHandleSsl)
-            return;
-        Runtime::UnloadLibrary(pLibraryHandleSsl);
-        pLibraryHandleSsl = nullptr;
+        if (pLibraryHandleSsl)
+        {
+            Runtime::UnloadLibrary(pLibraryHandleSsl);
+            pLibraryHandleSsl = nullptr;
+        }
         if(pLibCryptoHandle)
+        {
             Runtime::UnloadLibrary(pLibCryptoHandle);
-        pLibCryptoHandle = nullptr;
+            pLibCryptoHandle = nullptr;
+        }
     }
 
     SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
