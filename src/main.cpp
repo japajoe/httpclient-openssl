@@ -4,7 +4,7 @@
 int main()
 {
     Http::Client client;
-    Http::Request request(Http::Method::Get, "https://github.com");
+    Http::Request request(Http::Method::Get, "https://httpbin.org/gzip");
 
     auto response = client.Send(request);
 
@@ -12,10 +12,10 @@ int main()
     {
         auto &headers = response->GetHeaders();
 
-        // for(const auto& [key,value] : headers)
-        // {
-        //     std::cout << key << ": " << value << '\n';
-        // }
+        for(const auto& [key,value] : headers)
+        {
+            std::cout << key << ": " << value << '\n';
+        }
 
         std::string content;
         
