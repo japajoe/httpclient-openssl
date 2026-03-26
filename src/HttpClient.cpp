@@ -211,6 +211,15 @@ namespace Http
 #endif
         return 0;
     }
+    
+    int64_t Socket::Peek(void *buffer, uint64_t size)
+    {
+#if defined(HTTP_PLATFORM_WINDOWS)
+		return ::recv(descriptor, (char*)buffer, size, MSG_PEEK);
+#elif defined(HTTP_PLATFORM_UNIX)
+		return ::recv(descriptor, buffer, size, MSG_PEEK);
+#endif
+    }
 
     int32_t Socket::GetDescriptor() const
     {
@@ -436,18 +445,7 @@ namespace Http
             file.close();
     }
 
-    ContentStream::ContentStream()
-    {
-        socket = nullptr;
-        ssl = nullptr;
-        initialContent = nullptr;
-        initialContentLength = 0;
-        initialContentConsumed = 0;
-        bytesRemainingInChunk = 0;
-        firstChunk = true;
-    }
-
-    ContentStream::ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<TransferEncoding> &encoding)
+    ContentStream::ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<Encoding> &transferEncoding, const std::vector<Encoding> &contentEncoding)
     {
         this->socket = socket;
         this->ssl = ssl;
@@ -468,8 +466,32 @@ namespace Http
             initialContentConsumed = 0;
         }
 
-        for (size_t i = 0; i < encoding.size(); i++)
-            this->encoding.push_back(encoding[i]);
+        isChunked = false;
+        isGzip = false;
+
+        for (size_t i = 0; i < transferEncoding.size(); i++)
+        {
+            if(transferEncoding[i] == Encoding::Chunked)
+            {
+                isChunked = true;
+            }
+            if(transferEncoding[i] == Encoding::GZip)
+            {
+                isGzip = true;
+            }
+        }
+        
+        for (size_t i = 0; i < contentEncoding.size(); i++)
+        {
+            if(contentEncoding[i] == Encoding::Chunked)
+            {
+                isChunked = true;
+            }
+            if(contentEncoding[i] == Encoding::GZip)
+            {
+                isGzip = true;
+            }
+        }
 
         bytesRemainingInChunk = 0;
         firstChunk = true;
@@ -489,6 +511,11 @@ namespace Http
         if (socket)
         {
             socket->Close();
+        }
+
+        if (decompressionStream)
+        {
+            inflateEnd(decompressionStream.get());
         }
     }
 
@@ -532,53 +559,74 @@ namespace Http
     {
         std::string line;
         char c;
+        const size_t maxLineLength = 4096; // Standard HTTP limit is usually 8KB
+
         while (ReadInternal(&c, 1) > 0)
         {
             line += c;
+
+            // Check for line ending
             if (line.size() >= 2 && line.substr(line.size() - 2) == "\r\n")
             {
                 return line.substr(0, line.size() - 2);
+            }
+
+            // Safety break
+            if (line.size() > maxLineLength)
+            {
+                break; 
             }
         }
         return line;
     }
 
-    int64_t ContentStream::ReadChunked(void *buffer, size_t size)
+    int64_t ContentStream::ReadChunked(void* buffer, size_t size)
     {
-        // If we finished the previous chunk, we need to parse the next header
+        if (socket == nullptr || buffer == nullptr || size == 0)
+        {
+            return 0;
+        }
+            
         if (bytesRemainingInChunk == 0)
         {
-            // If this isn't the very first chunk, consume the trailing \r\n from the previous one
+            // If we just finished a chunk, we MUST consume the CRLF 
+            // that follows the chunk data before reading the next size.
             if (!firstChunk)
             {
-                char trailer[2];
-                ReadInternal(trailer, 2);
+                ReadLineInternal(); 
             }
 
-            std::string hexLine = ReadLineInternal(); // Helper to read until \r\n
+            std::string hexLine = ReadLineInternal(); 
             if (hexLine.empty())
             {
                 return 0;
             }
 
-            // Parse hex (handle extensions like "ff;ext=val")
-            size_t semiColon = hexLine.find(';');
-            bytesRemainingInChunk = std::stoll(hexLine.substr(0, semiColon), nullptr, 16);
+            try 
+            {
+                size_t semiColon = hexLine.find(';');
+                bytesRemainingInChunk = std::stoll(hexLine.substr(0, semiColon), nullptr, 16);
+            }
+            catch (...)
+            {
+                return -1; // Malformed chunk header
+            }
+
             firstChunk = false;
 
-            // Final chunk (size 0) reached
             if (bytesRemainingInChunk == 0)
             {
-                char endTrailer[2];
-                ReadInternal(endTrailer, 2); // Consume final \r\n
+                // Consume any trailers until we hit the final empty line
+                std::string trailer;
+                while (!(trailer = ReadLineInternal()).empty()) 
+                {
+                    // Optionally store trailers here if needed
+                }
                 return 0;
             }
         }
 
-        // Determine how much we can actually read right now
         size_t toRead = std::min(size, static_cast<size_t>(bytesRemainingInChunk));
-
-        // Read the actual data from the socket into the user's buffer
         int64_t bytesRead = ReadInternal(buffer, toRead);
 
         if (bytesRead > 0)
@@ -589,15 +637,91 @@ namespace Http
         return bytesRead;
     }
 
+    int64_t ContentStream::ReadGZip(void* buffer, size_t size)
+    {
+        if (socket == nullptr)
+            return 0;
+
+        if (buffer == nullptr)
+            return 0;
+
+        if (size == 0)
+            return 0;
+
+        if(!decompressionStream)
+        {
+            internalBuffer.resize(8192);
+            decompressionStream = std::make_unique<z_stream>();
+            std::memset(decompressionStream.get(), 0 , sizeof(z_stream));
+
+            // 16 + 15 (MAX_WBITS) = 31, which tells zlib to expect GZIP headers
+            int status = inflateInit2(decompressionStream.get(), 31);
+
+            if (status != 0) // Z_OK
+            {
+                decompressionStream.reset();
+                decompressionStream = nullptr;
+                return -1;
+            }
+        }
+
+        decompressionStream->next_out = (Bytef*)buffer;
+        decompressionStream->avail_out = (uInt)size;
+
+        while (decompressionStream->avail_out > 0)
+        {
+            if (decompressionStream->avail_in == 0)
+            {
+                int64_t bytesRead = 0;
+
+                if(isChunked)
+                    bytesRead = ReadChunked(internalBuffer.data(), internalBuffer.size());
+                else
+                    bytesRead = ReadInternal(internalBuffer.data(), internalBuffer.size());
+
+                if (bytesRead < 0)
+                    return -1; // Underlying stream error
+                
+                if (bytesRead == 0)
+                    break; // No more data available from the source
+
+                decompressionStream->next_in = (Bytef*)internalBuffer.data();
+                decompressionStream->avail_in = (uInt)bytesRead;
+            }
+
+            // This calls your 'inflate' function pointer
+            int ret = inflate(decompressionStream.get(), 0); // Z_NO_FLUSH
+
+            if (ret == 1) // Z_STREAM_END
+            {
+                break; 
+            }
+
+            if (ret != 0 && ret != -5) // Z_OK, Z_BUF_ERROR
+            {
+                return -1;
+            }
+        }
+
+        return static_cast<int64_t>(size - decompressionStream->avail_out);
+    }
+
     int64_t ContentStream::Read(void *buffer, size_t size)
     {
-        if (encoding.size() == 0)
-            return ReadInternal(buffer, size);
+    // Layer 1: Content-Encoding (The "What")
+        if (isGzip)
+        {
+            return ReadGZip(buffer, size);
+        }
 
-        if (encoding.back() == TransferEncoding::Chunked)
+        // Layer 2: Transfer-Encoding (The "How")
+        if (isChunked)
+        {
             return ReadChunked(buffer, size);
+        }
 
-        return ReadInternal(buffer, size); // Other encodings not implemented yet
+        // Layer 3: Raw Data (The "Source")
+        return ReadInternal(buffer, size);
     }
 
     int64_t ContentStream::Write(const void *buffer, size_t size)
@@ -746,20 +870,16 @@ namespace Http
         }
         else
         {
-            if (encoding.size() == 0)
-                return false;
-            if (encoding.back() == TransferEncoding::Chunked)
+            //Possibly chunked payload
+            char buffer[1024] = {0};
+            uint64_t bytesRead = 0;
+
+            while ((bytesRead = content->Read(buffer, 1023)) > 0)
             {
-                char buffer[1024] = {0};
-                uint64_t bytesRead = 0;
-
-                while ((bytesRead = content->Read(buffer, 1023)) > 0)
-                {
-                    str.append(buffer, bytesRead);
-                }
-
-                return str.size() > 0;
+                str.append(buffer, bytesRead);
             }
+
+            return str.size() > 0;
         }
 
         return false;
@@ -825,6 +945,11 @@ namespace Http
         }
 
         std::string remaining = uri;
+
+        if (!remaining.empty() && remaining.back() == '/')
+        {
+            remaining.pop_back();
+        }
 
         // 1. Extract Scheme
         size_t schemeEnd = remaining.find("://");
@@ -1132,11 +1257,11 @@ namespace Http
                     if (leftOverSize > 0)
                     {
                         std::string initialContent = responseHeader.substr(headerTotalSize);
-                        response->content = std::make_shared<ContentStream>(socket, ssl, initialContent.data(), initialContent.size(), response->encoding);
+                        response->content = std::make_shared<ContentStream>(socket, ssl, initialContent.data(), initialContent.size(), response->transferEncoding, response->contentEncoding);
                     }
                     else
                     {
-                        response->content = std::make_shared<ContentStream>(socket, ssl, nullptr, 0, response->encoding);
+                        response->content = std::make_shared<ContentStream>(socket, ssl, nullptr, 0, response->transferEncoding, response->contentEncoding);
                     }
 
                     return response;
@@ -1279,13 +1404,31 @@ namespace Http
                     {
                         std::string option = toLower(options[i]);
                         if (option == "chunked")
-                            response->encoding.push_back(TransferEncoding::Chunked);
+                            response->transferEncoding.push_back(Encoding::Chunked);
                         else if (option == "compress")
-                            response->encoding.push_back(TransferEncoding::Compress);
+                            response->transferEncoding.push_back(Encoding::Compress);
                         else if (option == "deflate")
-                            response->encoding.push_back(TransferEncoding::Deflate);
+                            response->transferEncoding.push_back(Encoding::Deflate);
                         else if (option == "gzip")
-                            response->encoding.push_back(TransferEncoding::GZip);
+                            response->transferEncoding.push_back(Encoding::GZip);
+                    }
+                }
+
+                if (keyLowerCase == "content-encoding")
+                {
+                    std::vector<std::string> options;
+                    getHeaderOptions(value, options);
+                    for (size_t i = 0; i < options.size(); i++)
+                    {
+                        std::string option = toLower(options[i]);
+                        if (option == "chunked")
+                            response->contentEncoding.push_back(Encoding::Chunked);
+                        else if (option == "compress")
+                            response->contentEncoding.push_back(Encoding::Compress);
+                        else if (option == "deflate")
+                            response->contentEncoding.push_back(Encoding::Deflate);
+                        else if (option == "gzip")
+                            response->contentEncoding.push_back(Encoding::GZip);
                     }
                 }
             }

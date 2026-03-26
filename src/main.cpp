@@ -4,7 +4,7 @@
 int main()
 {
     Http::Client client;
-    Http::Request request(Http::Method::Get, "https://github.com/");
+    Http::Request request(Http::Method::Get, "https://github.com");
 
     auto response = client.Send(request);
 
@@ -25,6 +25,10 @@ int main()
         }
 
         std::cout << content << '\n';
+    }
+    else
+    {
+        std::cout << "Status: " << (int)response->GetStatus() << '\n';
     }
 
     return 0;

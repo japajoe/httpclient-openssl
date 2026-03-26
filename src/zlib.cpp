@@ -2,6 +2,7 @@
 #include "Runtime.hpp"
 #include "Platform.hpp"
 #include <iostream>
+//#include <zlib.h>
 
 namespace Http
 {

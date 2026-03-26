@@ -28,6 +28,7 @@ namespace Http
         void Shutdown();
         int64_t Read(void *buffer, uint64_t size);
         int64_t Write(const void *buffer, uint64_t size);
+        int64_t Peek(void *buffer, size_t size);
         int32_t GetDescriptor() const;
     private:
         int32_t descriptor;
@@ -122,7 +123,7 @@ namespace Http
         NetworkAuthenticationRequired = 511
     };
 
-    enum class TransferEncoding
+    enum class Encoding
     {
         Chunked,
         Compress,
@@ -188,11 +189,13 @@ namespace Http
         std::fstream file;
     };
 
+    struct z_stream_s;
+    typedef struct z_stream_s z_stream;
+
     class ContentStream : public Stream
     {
     public:
-        ContentStream();
-        ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<TransferEncoding> &encoding);
+        ContentStream(std::shared_ptr<Socket> socket, SSL *ssl, void *initialContent, size_t initialContentLength, const std::vector<Encoding> &transferEncoding, const std::vector<Encoding> &contentEncoding);
         ~ContentStream();
         int64_t Read(void *buffer, size_t size) override;
         int64_t Write(const void *buffer, size_t size) override;
@@ -202,15 +205,19 @@ namespace Http
     private:
         std::shared_ptr<Socket> socket;
         SSL *ssl;
+        std::unique_ptr<z_stream> decompressionStream;
         void *initialContent;
         uint64_t initialContentLength;
         uint64_t initialContentConsumed;
         uint64_t bytesRemainingInChunk;
         bool firstChunk;
-        std::vector<TransferEncoding> encoding;
+        bool isChunked;
+        bool isGzip;
+        std::vector<uint8_t> internalBuffer;
         int64_t ReadInternal(void *buffer, size_t size);
         std::string ReadLineInternal();
         int64_t ReadChunked(void* buffer, size_t size);
+        int64_t ReadGZip(void* buffer, size_t size);
     };
 
     class Client;
@@ -253,7 +260,8 @@ namespace Http
         uint64_t contentLength;        
         std::unordered_map<std::string,std::string> headers;
         std::vector<std::string> cookies;
-        std::vector<TransferEncoding> encoding;
+        std::vector<Encoding> transferEncoding;
+        std::vector<Encoding> contentEncoding;
         std::shared_ptr<ContentStream> content;
     };
 
