@@ -1,4 +1,7 @@
 #include "HttpClient.hpp"
+#include "Platform.hpp"
+#include "openssl.hpp"
+#include "zlib.hpp"
 #include <utility>
 #include <atomic>
 #include <cassert>
@@ -6,26 +9,6 @@
 #include <iostream>
 #include <cstring>
 #include <algorithm>
-
-#if defined(_WIN32) || defined(_WIN64)
-#define HTTP_PLATFORM_WINDOWS
-#endif
-
-#if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__)
-#define HTTP_PLATFORM_UNIX
-#endif
-
-#if defined(__linux__)
-#define HTTP_PLATFORM_LINUX
-#endif
-
-#if defined(__FreeBSD__)
-#define HTTP_PLATFORM_BSD
-#endif
-
-#if defined(__APPLE__)
-#define HTTP_PLATFORM_MAC
-#endif
 
 #if defined(HTTP_PLATFORM_WINDOWS)
 #ifdef _WIN32_WINNT
@@ -47,7 +30,6 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <dlfcn.h>
 #include <limits.h>
 #include <sys/wait.h>
 #endif
@@ -84,8 +66,9 @@ namespace Http
             WSADATA wsaData;
             int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
             assert(result != 0 && "Failed to initialize winsock");
+            if(result == 0)
+                gWinsockInitialized.store(true);
         }
-        gSocketCount.store(true);
 #endif
     }
 
@@ -232,349 +215,6 @@ namespace Http
     int32_t Socket::GetDescriptor() const
     {
         return descriptor;
-    }
-
-    // ██████╗ ██╗   ██╗███╗   ██╗████████╗██╗███╗   ███╗███████╗
-    // ██╔══██╗██║   ██║████╗  ██║╚══██╔══╝██║████╗ ████║██╔════╝
-    // ██████╔╝██║   ██║██╔██╗ ██║   ██║   ██║██╔████╔██║█████╗
-    // ██╔══██╗██║   ██║██║╚██╗██║   ██║   ██║██║╚██╔╝██║██╔══╝
-    // ██║  ██║╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚═╝ ██║███████╗
-    // ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝     ╚═╝╚══════╝
-
-    class Runtime
-    {
-    public:
-        static void *LoadLibrary(const std::string &filePath)
-        {
-            if (!std::filesystem::exists(std::filesystem::path(filePath)))
-            {
-                std::cout << "File not found: " << filePath << '\n';
-                return nullptr;
-            }
-
-            void *moduleHandle = nullptr;
-
-#if defined(HTTP_PLATFORM_WINDOWS)
-            moduleHandle = (void *)LoadLibrary(filePath.c_str());
-            if (!moduleHandle)
-                std::cout << "Failed to load library: " << filePath << '\n';
-#elif defined(HTTP_PLATFORM_UNIX)
-            moduleHandle = dlopen(filePath.c_str(), RTLD_LAZY);
-            if (!moduleHandle)
-            {
-                char *error = dlerror();
-                std::cout << "Failed to load library: " << filePath << ". Error: " << error << '\n';
-            }
-#endif
-
-            return moduleHandle;
-        }
-
-        static void UnloadLibrary(void *libraryHandle)
-        {
-            if (!libraryHandle)
-                return;
-#if defined(HTTP_PLATFORM_WINDOWS)
-            FreeLibrary((HINSTANCE)libraryHandle);
-#elif defined(HTTP_PLATFORM_UNIX)
-            dlclose(libraryHandle);
-#endif
-        }
-
-        static void *GetSymbol(void *libraryHandle, const std::string &symbolName)
-        {
-            if (!libraryHandle)
-                return nullptr;
-
-            void *s = nullptr;
-
-#if defined(HTTP_PLATFORM_WINDOWS)
-            s = (void *)GetProcAddress((HINSTANCE)libraryHandle, symbolName.c_str());
-            if (s == nullptr)
-                std::cout << "Error: undefined symbol: " << symbolName << '\n';
-#elif defined(HTTP_PLATFORM_UNIX)
-            dlerror(); /* clear error code */
-            s = dlsym(libraryHandle, symbolName.c_str());
-            char *error = dlerror();
-
-            if (error != nullptr)
-                std::cout << "Error: " << error << '\n';
-#endif
-
-            return s;
-        }
-
-        static bool FindLibraryPath(const std::string &libraryName, std::string &libraryPath)
-        {
-#if defined(HTTP_PLATFORM_WINDOWS)
-            static char result[4096]; // Static buffer to hold result
-            DWORD res = SearchPath(nullptr, libraryName.c_str(), nullptr, MAX_PATH, result, nullptr);
-            if (res == 0)
-                return false;
-            int len = strlen(result);
-            char *outputPath = new char[len + 1];
-            std::memcpy(outputPath, result, len);
-            outputPath[len] = '\0';
-            libraryPath = std::string(outputPath);
-            delete[] outputPath;
-            return true;
-#elif defined(HTTP_PLATFORM_LINUX) || defined(HTTP_PLATFORM_BSD)
-            // Prepare the command to search the library
-            char cmd[256];
-
-#ifdef HTTP_PLATFORM_LINUX
-            snprintf(cmd, sizeof(cmd), "ldconfig -p 2>/dev/null | grep %s", libraryName.c_str());
-#else
-            snprintf(cmd, sizeof(cmd), "ldconfig -r | grep %s", libraryName.c_str());
-#endif
-
-            FILE *pipe = popen(cmd, "r");
-
-            if (!pipe)
-            {
-                std::cout << "popen() failed\n";
-                return false;
-            }
-
-            static char result[4096]; // Static buffer to hold result
-
-            while (fgets(result, sizeof(result), pipe) != NULL)
-            {
-                // Find the path after the "=>" symbol
-                char *pos = strstr(result, "=>");
-                if (pos != NULL)
-                {
-                    pos += 2; // Move pointer to the path
-                    // Trim whitespace
-                    while (*pos == ' ')
-                        pos++;
-                    // Remove newline character
-                    char *newline = strchr(pos, '\n');
-                    if (newline)
-                        *newline = '\0';
-                    pclose(pipe);
-                    int len = strlen(pos);
-                    char *outputPath = new char[len + 1];
-                    std::memcpy(outputPath, pos, len);
-                    outputPath[len] = '\0';
-                    libraryPath = std::string(outputPath);
-                    delete[] outputPath;
-                    return true;
-                }
-            }
-
-            pclose(pipe);
-            return false;
-#elif defined(HTTP_PLATFORM_MAC)
-            return false;
-#else
-            return false;
-#endif
-        }
-    };
-
-    //  ██████╗ ██████╗ ███████╗███╗   ██╗███████╗███████╗██╗
-    // ██╔═══██╗██╔══██╗██╔════╝████╗  ██║██╔════╝██╔════╝██║
-    // ██║   ██║██████╔╝█████╗  ██╔██╗ ██║███████╗███████╗██║
-    // ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║╚════██║╚════██║██║
-    // ╚██████╔╝██║     ███████╗██║ ╚████║███████║███████║███████╗
-    //  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝
-
-    typedef struct ssl_method_st SSL_METHOD;
-    typedef struct x509_store_ctx_st X509_STORE_CTX;
-    typedef int (*SSL_verify_cb)(int preverify_ok, X509_STORE_CTX *x509_ctx);
-
-#define SSL_CTRL_SET_TLSEXT_HOSTNAME 55
-#define TLSEXT_NAMETYPE_host_name 0
-#define SSL_ERROR_NONE 0
-#define SSL_ERROR_SSL 1
-#define SSL_ERROR_WANT_READ 2
-#define SSL_ERROR_WANT_WRITE 3
-#define SSL_ERROR_WANT_X509_LOOKUP 4
-#define SSL_ERROR_SYSCALL 5 // look at error stack/return value/errno
-
-    typedef SSL_CTX *(*SSL_CTX_new_t)(const SSL_METHOD *meth);
-    typedef const SSL_METHOD *(*TLS_method_t)(void);
-    typedef const SSL_METHOD *(*TLS_client_method_t)(void);
-    typedef SSL *(*SSL_new_t)(SSL_CTX *ctx);
-    typedef int (*SSL_set_fd_t)(SSL *s, int fd);
-    typedef long (*SSL_ctrl_t)(SSL *ssl, int cmd, long larg, void *parg);
-    typedef int (*SSL_connect_t)(SSL *ssl);
-    typedef int (*SSL_read_t)(SSL *ssl, void *buf, int num);
-    typedef int (*SSL_write_t)(SSL *ssl, const void *buf, int num);
-    typedef int (*SSL_peek_t)(SSL *ssl, void *buf, int num);
-    typedef int (*SSL_shutdown_t)(SSL *s);
-    typedef void (*SSL_free_t)(SSL *ssl);
-    typedef int (*SSL_get_error_t)(const SSL *s, int ret_code);
-    typedef void (*SSL_CTX_free_t)(SSL_CTX *ctx);
-    typedef void (*SSL_CTX_set_verify_t)(SSL_CTX *ctx, int mode, SSL_verify_cb callback);
-
-    static void *pLibraryHandle = nullptr;
-    static void *pLibCryptoHandle = nullptr;
-    static SSL_CTX_new_t SSL_CTX_new_ptr = nullptr;
-    static TLS_method_t TLS_method_ptr = nullptr;
-    static TLS_client_method_t TLS_client_method_ptr = nullptr;
-    static SSL_new_t SSL_new_ptr = nullptr;
-    static SSL_set_fd_t SSL_set_fd_ptr = nullptr;
-    static SSL_ctrl_t SSL_ctrl_ptr = nullptr;
-    static SSL_connect_t SSL_connect_ptr = nullptr;
-    static SSL_read_t SSL_read_ptr = nullptr;
-    static SSL_write_t SSL_write_ptr = nullptr;
-    static SSL_peek_t SSL_peek_ptr = nullptr;
-    static SSL_shutdown_t SSL_shutdown_ptr = nullptr;
-    static SSL_free_t SSL_free_ptr = nullptr;
-    static SSL_get_error_t SSL_get_error_ptr = nullptr;
-    static SSL_CTX_free_t SSL_CTX_free_ptr = nullptr;
-    static SSL_CTX_set_verify_t SSL_CTX_set_verify_ptr = nullptr;
-
-    static void OnSignal(int s)
-    {
-        if (s == SIGPIPE)
-        {
-            printf("Broken pipe\n");
-            return;
-        }
-    }
-
-    bool SSL_library_load(void)
-    {
-        if (pLibraryHandle)
-        {
-            return true;
-        }
-
-        std::string libraryPath;
-
-#if defined(HTTP_PLATFORM_WINDOWS)
-        libraryPath = "libssl-3-x64.dll";
-#elif defined(HTTP_PLATFORM_LINUX) || defined(HTTP_PLATFORM_BSD)
-        Runtime::FindLibraryPath("libssl.so", libraryPath);
-        // libraryPath = "./libssl.so.3";
-#else
-        return false;
-#endif
-        if (libraryPath.size() > 0)
-        {
-#if defined(HTTP_PLATFORM_LINUX) && 0
-            pLibCryptoHandle = Runtime::LoadLibrary("./libcrypto.so.3");
-#endif
-            pLibraryHandle = Runtime::LoadLibrary(libraryPath);
-
-            if (!pLibraryHandle)
-            {
-                std::cout << "Failed to load " << libraryPath << '\n';
-                return false;
-            }
-
-            SSL_CTX_new_ptr = (SSL_CTX_new_t)Runtime::GetSymbol(pLibraryHandle, "SSL_CTX_new");
-            TLS_method_ptr = (TLS_method_t)Runtime::GetSymbol(pLibraryHandle, "TLS_method");
-            TLS_client_method_ptr = (TLS_client_method_t)Runtime::GetSymbol(pLibraryHandle, "TLS_client_method");
-            SSL_new_ptr = (SSL_new_t)Runtime::GetSymbol(pLibraryHandle, "SSL_new");
-            SSL_set_fd_ptr = (SSL_set_fd_t)Runtime::GetSymbol(pLibraryHandle, "SSL_set_fd");
-            SSL_ctrl_ptr = (SSL_ctrl_t)Runtime::GetSymbol(pLibraryHandle, "SSL_ctrl");
-            SSL_connect_ptr = (SSL_connect_t)Runtime::GetSymbol(pLibraryHandle, "SSL_connect");
-            SSL_read_ptr = (SSL_read_t)Runtime::GetSymbol(pLibraryHandle, "SSL_read");
-            SSL_write_ptr = (SSL_write_t)Runtime::GetSymbol(pLibraryHandle, "SSL_write");
-            SSL_peek_ptr = (SSL_peek_t)Runtime::GetSymbol(pLibraryHandle, "SSL_peek");
-            SSL_shutdown_ptr = (SSL_shutdown_t)Runtime::GetSymbol(pLibraryHandle, "SSL_shutdown");
-            SSL_free_ptr = (SSL_free_t)Runtime::GetSymbol(pLibraryHandle, "SSL_free");
-            SSL_get_error_ptr = (SSL_get_error_t)Runtime::GetSymbol(pLibraryHandle, "SSL_get_error");
-            SSL_CTX_free_ptr = (SSL_CTX_free_t)Runtime::GetSymbol(pLibraryHandle, "SSL_CTX_free");
-            SSL_CTX_set_verify_ptr = (SSL_CTX_set_verify_t)Runtime::GetSymbol(pLibraryHandle, "SSL_CTX_set_verify");
-
-#if defined(HTTP_PLATFORM_UNIX) || defined(HTTP_PLATFORM_BSD)
-            signal(SIGPIPE, OnSignal);
-            // signal(SIGPIPE, SIG_IGN);
-            // SIG_IGN
-#endif
-            return true;
-        }
-
-        return false;
-    }
-
-    void SSL_library_unload(void)
-    {
-        if (!pLibraryHandle)
-            return;
-        Runtime::UnloadLibrary(pLibraryHandle);
-        pLibraryHandle = nullptr;
-        pLibCryptoHandle = nullptr;
-    }
-
-    SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
-    {
-        return SSL_CTX_new_ptr(meth);
-    }
-
-    const SSL_METHOD *TLS_method(void)
-    {
-        return TLS_method_ptr();
-    }
-
-    const SSL_METHOD *TLS_client_method(void)
-    {
-        return TLS_client_method_ptr();
-    }
-
-    SSL *SSL_new(SSL_CTX *ctx)
-    {
-        return SSL_new_ptr(ctx);
-    }
-
-    int SSL_set_fd(SSL *s, int fd)
-    {
-        return SSL_set_fd_ptr(s, fd);
-    }
-
-    long SSL_ctrl(SSL *ssl, int cmd, long larg, void *parg)
-    {
-        return SSL_ctrl_ptr(ssl, cmd, larg, parg);
-    }
-
-    int SSL_connect(SSL *ssl)
-    {
-        return SSL_connect_ptr(ssl);
-    }
-
-    int SSL_read(SSL *ssl, void *buf, int num)
-    {
-        return SSL_read_ptr(ssl, buf, num);
-    }
-
-    int SSL_write(SSL *ssl, const void *buf, int num)
-    {
-        return SSL_write_ptr(ssl, buf, num);
-    }
-
-    int SSL_peek(SSL *ssl, void *buf, int num)
-    {
-        return SSL_peek_ptr(ssl, buf, num);
-    }
-
-    int SSL_shutdown(SSL *s)
-    {
-        return SSL_shutdown_ptr(s);
-    }
-
-    void SSL_free(SSL *ssl)
-    {
-        return SSL_free_ptr(ssl);
-    }
-
-    int SSL_get_error(const SSL *s, int ret_code)
-    {
-        return SSL_get_error_ptr(s, ret_code);
-    }
-
-    void SSL_CTX_free(SSL_CTX *ctx)
-    {
-        return SSL_CTX_free_ptr(ctx);
-    }
-
-    void SSL_CTX_set_verify(SSL_CTX *ctx, int mode, SSL_verify_cb callback)
-    {
-        return SSL_CTX_set_verify_ptr(ctx, mode, callback);
     }
 
     // ███████╗████████╗██████╗ ███████╗ █████╗ ███╗   ███╗
@@ -828,9 +468,9 @@ namespace Http
             initialContentConsumed = 0;
         }
 
-        for(size_t i = 0; i < encoding.size(); i++)
+        for (size_t i = 0; i < encoding.size(); i++)
             this->encoding.push_back(encoding[i]);
-        
+
         bytesRemainingInChunk = 0;
         firstChunk = true;
     }
@@ -903,7 +543,7 @@ namespace Http
         return line;
     }
 
-    int64_t ContentStream::ReadChunked(void* buffer, size_t size)
+    int64_t ContentStream::ReadChunked(void *buffer, size_t size)
     {
         // If we finished the previous chunk, we need to parse the next header
         if (bytesRemainingInChunk == 0)
@@ -912,7 +552,7 @@ namespace Http
             if (!firstChunk)
             {
                 char trailer[2];
-                ReadInternal(trailer, 2); 
+                ReadInternal(trailer, 2);
             }
 
             std::string hexLine = ReadLineInternal(); // Helper to read until \r\n
@@ -931,7 +571,7 @@ namespace Http
             {
                 char endTrailer[2];
                 ReadInternal(endTrailer, 2); // Consume final \r\n
-                return 0; 
+                return 0;
             }
         }
 
@@ -951,10 +591,10 @@ namespace Http
 
     int64_t ContentStream::Read(void *buffer, size_t size)
     {
-        if(encoding.size() == 0)
+        if (encoding.size() == 0)
             return ReadInternal(buffer, size);
 
-        if(encoding.back() == TransferEncoding::Chunked)
+        if (encoding.back() == TransferEncoding::Chunked)
             return ReadChunked(buffer, size);
 
         return ReadInternal(buffer, size); // Other encodings not implemented yet
@@ -1106,14 +746,14 @@ namespace Http
         }
         else
         {
-            if(encoding.size() == 0)
+            if (encoding.size() == 0)
                 return false;
-            if(encoding.back() == TransferEncoding::Chunked)
+            if (encoding.back() == TransferEncoding::Chunked)
             {
                 char buffer[1024] = {0};
                 uint64_t bytesRead = 0;
 
-                while((bytesRead = content->Read(buffer, 1023)) > 0)
+                while ((bytesRead = content->Read(buffer, 1023)) > 0)
                 {
                     str.append(buffer, bytesRead);
                 }
@@ -1140,9 +780,20 @@ namespace Http
     Client::Client()
     {
         if (SSL_library_load())
+        {
             sslContext = SSL_CTX_new(TLS_method());
+            std::cout << "libssl loaded\n";
+        }
         else
+        {
             sslContext = nullptr;
+            std::cout << "Failed to load libssl\n";
+        }
+
+        if (zlib_load_library())
+            std::cout << "libz loaded\n";
+        else
+            std::cout << "Failed to load libz\n";
     }
 
     Client::Client(Client &&other) noexcept
@@ -1534,7 +1185,7 @@ namespace Http
             }
         };
 
-        auto getHeaderOptions = [] (const std::string& value, std::vector<std::string>& options) -> void
+        auto getHeaderOptions = [](const std::string &value, std::vector<std::string> &options) -> void
         {
             size_t start = 0;
             size_t end = value.find(',');
@@ -1542,11 +1193,11 @@ namespace Http
             while (end != std::string::npos)
             {
                 std::string option = value.substr(start, end - start);
-                
+
                 // Trim whitespace
                 option.erase(0, option.find_first_not_of(" "));
                 option.erase(option.find_last_not_of(" ") + 1);
-                
+
                 if (!option.empty())
                 {
                     options.push_back(option);
@@ -1560,7 +1211,7 @@ namespace Http
             std::string lastOption = value.substr(start);
             lastOption.erase(0, lastOption.find_first_not_of(" "));
             lastOption.erase(lastOption.find_last_not_of(" ") + 1);
-            
+
             if (!lastOption.empty())
             {
                 options.push_back(lastOption);
@@ -1570,9 +1221,7 @@ namespace Http
         auto toLower = [](std::string data) -> std::string
         {
             std::transform(data.begin(), data.end(), data.begin(), [](unsigned char c)
-            {
-                return std::tolower(c);
-            });
+                           { return std::tolower(c); });
 
             return data;
         };
@@ -1622,20 +1271,20 @@ namespace Http
                         return false;
                 }
 
-                if(keyLowerCase == "transfer-encoding")
+                if (keyLowerCase == "transfer-encoding")
                 {
                     std::vector<std::string> options;
                     getHeaderOptions(value, options);
-                    for(size_t i = 0; i < options.size(); i++)
+                    for (size_t i = 0; i < options.size(); i++)
                     {
                         std::string option = toLower(options[i]);
-                        if(option == "chunked")
+                        if (option == "chunked")
                             response->encoding.push_back(TransferEncoding::Chunked);
-                        else if(option == "compress")
+                        else if (option == "compress")
                             response->encoding.push_back(TransferEncoding::Compress);
-                        else if(option == "deflate")
+                        else if (option == "deflate")
                             response->encoding.push_back(TransferEncoding::Deflate);
-                        else if(option == "gzip")
+                        else if (option == "gzip")
                             response->encoding.push_back(TransferEncoding::GZip);
                     }
                 }
