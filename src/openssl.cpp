@@ -62,52 +62,56 @@ namespace Http
             return true;
         }
 
-        std::string libraryPath;
+        std::string libraryPathSsl;
+        std::string libraryPathCrypto;
 
 #if defined(HTTP_PLATFORM_WINDOWS)
-        libraryPath = "runtimes/libssl-3-x64.dll";
+        libraryPathSsl = "libssl-3-x64.dll";
+        libraryPathCrypto = "libcrypto-3-x64.dll";
 #elif defined(HTTP_PLATFORM_LINUX)
-        // Runtime::FindLibraryPath("libssl.so", libraryPath);
-        libraryPath = "runtimes/libssl.so.3";
+        libraryPathSsl = "./libssl.so.3";
+        libraryPathCrypto = "./libcrypto.so.3";
 #else
         return false;
 #endif
-        if (libraryPath.size() > 0)
+        pLibCryptoHandle = Runtime::LoadLibraryFromPath(libraryPathCrypto);
+
+        if (!pLibCryptoHandle)
         {
-#if defined(HTTP_PLATFORM_LINUX)
-            pLibCryptoHandle = Runtime::LoadLibrary("runtimes/libcrypto.so.3");
-#endif
-            pLibraryHandleSsl = Runtime::LoadLibrary(libraryPath);
-
-            if (!pLibraryHandleSsl)
-            {
-                std::cout << "Failed to load " << libraryPath << '\n';
-                return false;
-            }
-
-            SSL_CTX_new_ptr = (SSL_CTX_new_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_new");
-            TLS_method_ptr = (TLS_method_t)Runtime::GetSymbol(pLibraryHandleSsl, "TLS_method");
-            TLS_client_method_ptr = (TLS_client_method_t)Runtime::GetSymbol(pLibraryHandleSsl, "TLS_client_method");
-            SSL_new_ptr = (SSL_new_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_new");
-            SSL_set_fd_ptr = (SSL_set_fd_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_set_fd");
-            SSL_ctrl_ptr = (SSL_ctrl_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_ctrl");
-            SSL_connect_ptr = (SSL_connect_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_connect");
-            SSL_read_ptr = (SSL_read_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_read");
-            SSL_write_ptr = (SSL_write_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_write");
-            SSL_peek_ptr = (SSL_peek_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_peek");
-            SSL_shutdown_ptr = (SSL_shutdown_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_shutdown");
-            SSL_free_ptr = (SSL_free_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_free");
-            SSL_get_error_ptr = (SSL_get_error_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_get_error");
-            SSL_CTX_free_ptr = (SSL_CTX_free_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_free");
-            SSL_CTX_set_verify_ptr = (SSL_CTX_set_verify_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_set_verify");
-
-#if defined(HTTP_PLATFORM_LINUX)
-            signal(SIGPIPE, OnSignal);
-#endif
-            return true;
+            std::cout << "Failed to load " << libraryPathCrypto << '\n';
+            return false;
         }
 
-        return false;
+        pLibraryHandleSsl = Runtime::LoadLibraryFromPath(libraryPathSsl);
+
+        if (!pLibraryHandleSsl)
+        {
+            std::cout << "Failed to load " << libraryPathSsl << '\n';
+            Runtime::UnloadLibrary(pLibCryptoHandle);
+            pLibCryptoHandle = nullptr;
+            return false;
+        }
+
+        SSL_CTX_new_ptr = (SSL_CTX_new_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_new");
+        TLS_method_ptr = (TLS_method_t)Runtime::GetSymbol(pLibraryHandleSsl, "TLS_method");
+        TLS_client_method_ptr = (TLS_client_method_t)Runtime::GetSymbol(pLibraryHandleSsl, "TLS_client_method");
+        SSL_new_ptr = (SSL_new_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_new");
+        SSL_set_fd_ptr = (SSL_set_fd_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_set_fd");
+        SSL_ctrl_ptr = (SSL_ctrl_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_ctrl");
+        SSL_connect_ptr = (SSL_connect_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_connect");
+        SSL_read_ptr = (SSL_read_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_read");
+        SSL_write_ptr = (SSL_write_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_write");
+        SSL_peek_ptr = (SSL_peek_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_peek");
+        SSL_shutdown_ptr = (SSL_shutdown_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_shutdown");
+        SSL_free_ptr = (SSL_free_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_free");
+        SSL_get_error_ptr = (SSL_get_error_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_get_error");
+        SSL_CTX_free_ptr = (SSL_CTX_free_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_free");
+        SSL_CTX_set_verify_ptr = (SSL_CTX_set_verify_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_CTX_set_verify");
+
+#if defined(HTTP_PLATFORM_LINUX)
+        signal(SIGPIPE, OnSignal);
+#endif
+        return true;
     }
 
     void SSL_library_unload(void)

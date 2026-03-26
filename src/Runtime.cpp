@@ -14,7 +14,7 @@
 
 namespace Http
 {
-    void *Runtime::LoadLibrary(const std::string &filePath)
+    void *Runtime::LoadLibraryFromPath(const std::string &filePath)
     {
         if (!std::filesystem::exists(std::filesystem::path(filePath)))
         {
@@ -25,7 +25,7 @@ namespace Http
         void *moduleHandle = nullptr;
 
 #if defined(HTTP_PLATFORM_WINDOWS)
-        moduleHandle = (void *)LoadLibrary(filePath.c_str());
+        moduleHandle = (void *)::LoadLibrary(filePath.c_str());
         if (!moduleHandle)
             std::cout << "Failed to load library: " << filePath << '\n';
 #elif defined(HTTP_PLATFORM_UNIX)

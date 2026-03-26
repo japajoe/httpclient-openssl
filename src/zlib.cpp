@@ -33,38 +33,30 @@ namespace Http
     bool zlib_load_library(void)
     {
         if (pLibraryHandleLibZ)
-        {
             return true;
-        }
 
         std::string libraryPath;
 
 #if defined(HTTP_PLATFORM_WINDOWS)
-        libraryPath = "runtimes/zlib1.dll";
+        libraryPath = "zlib1.dll";
 #elif defined(HTTP_PLATFORM_LINUX)
-        // Runtime::FindLibraryPath("libz.so.1", libraryPath);
-        libraryPath = "runtimes/libz.so.1.3.2";
+        libraryPath = "./libz.so.1.3.2";
 #else
         return false;
 #endif
-        if (libraryPath.size() > 0)
+        pLibraryHandleLibZ = Runtime::LoadLibraryFromPath(libraryPath);
+
+        if (!pLibraryHandleLibZ)
         {
-            pLibraryHandleLibZ = Runtime::LoadLibrary(libraryPath);
-
-            if (!pLibraryHandleLibZ)
-            {
-                std::cout << "Failed to load " << libraryPath << '\n';
-                return false;
-            }
-
-            inflateInit2__ptr = (inflateInit2__t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflateInit2_");
-            inflate_ptr = (inflate_t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflate");
-            inflateEnd_ptr = (inflateEnd_t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflateEnd");
-
-            return true;
+            std::cout << "Failed to load " << libraryPath << '\n';
+            return false;
         }
 
-        return false;
+        inflateInit2__ptr = (inflateInit2__t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflateInit2_");
+        inflate_ptr = (inflate_t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflate");
+        inflateEnd_ptr = (inflateEnd_t)Runtime::GetSymbol(pLibraryHandleLibZ, "inflateEnd");
+
+        return true;
     }
 
     void zlib_unload_library(void)

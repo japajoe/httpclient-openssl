@@ -3,6 +3,11 @@ project(httpclient)
 
 set(CMAKE_CXX_STANDARD 20)
 
+if(CMAKE_CXX_COMPILER MATCHES "mingw")
+    set(WIN32 TRUE)
+    set(CMAKE_SYSTEM_NAME Windows)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Default build type" FORCE)
 endif()
@@ -24,7 +29,40 @@ include_directories(
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 if(WIN32)
+    set(DLL_DIR "${PROJECT_SOURCE_DIR}/runtimes")
+
+    set(NETWORK_DLLS
+        "${DLL_DIR}/libssl-3-x64.dll"
+        "${DLL_DIR}/libcrypto-3-x64.dll"
+        "${DLL_DIR}/zlib1.dll"
+    )
+
+    foreach(dll ${NETWORK_DLLS})
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${dll}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+        )
+    endforeach()
+
     target_link_libraries(${PROJECT_NAME} ws2_32)
 elseif(UNIX)
+    set(DLL_DIR "${PROJECT_SOURCE_DIR}/runtimes")
+
+    set(NETWORK_DLLS
+        "${DLL_DIR}/libssl.so.3"
+        "${DLL_DIR}/libcrypto.so.3"
+        "${DLL_DIR}/libz.so.1.3.2"
+    )
+
+    foreach(dll ${NETWORK_DLLS})
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${dll}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+        )
+    endforeach()
+
+
     target_link_libraries(${PROJECT_NAME} pthread -ldl)
 endif()

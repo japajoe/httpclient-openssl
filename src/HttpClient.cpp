@@ -15,9 +15,9 @@
 #undef _WIN32_WINNT
 #endif
 #define _WIN32_WINNT 0x0600
-#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #endif
 
 #if defined(HTTP_PLATFORM_UNIX)
@@ -45,7 +45,6 @@ namespace Http
 
 #if defined(HTTP_PLATFORM_WINDOWS)
 #define INVALID_SOCKET_HANDLE INVALID_SOCKET
-#define SOCKET_ERROR WSAGetLastError()
 #define SOCKET_EWOULDBLOCK WSAEWOULDBLOCK
 #define SOCKET_EGAIN WSAEWOULDBLOCK // Windows doesn't really have EAGAIN
 #else
@@ -59,13 +58,13 @@ namespace Http
 
     Socket::Socket()
     {
-        descriptor = INVALID_SOCKET_HANDLE;
+        descriptor = (int32_t)INVALID_SOCKET_HANDLE;
 #if defined(HTTP_PLATFORM_WINDOWS)
         if (!gWinsockInitialized.load())
         {
             WSADATA wsaData;
             int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
-            assert(result != 0 && "Failed to initialize winsock");
+            assert(result == 0 && "Failed to initialize winsock");
             if(result == 0)
                 gWinsockInitialized.store(true);
         }
@@ -180,7 +179,7 @@ namespace Http
             ::close(descriptor);
 #endif
         }
-        descriptor = INVALID_SOCKET_HANDLE;
+        descriptor = (int32_t)INVALID_SOCKET_HANDLE;
     }
 
     void Socket::Shutdown()
