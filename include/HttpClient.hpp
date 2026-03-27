@@ -214,6 +214,7 @@ namespace Http
         bool isChunked;
         bool isGzip;
         std::vector<uint8_t> internalBuffer;
+        int64_t Peek(void *buffer, size_t size);
         int64_t ReadInternal(void *buffer, size_t size);
         std::string ReadLineInternal();
         int64_t ReadChunked(void* buffer, size_t size);
@@ -230,7 +231,7 @@ namespace Http
         Method GetMethod() const;
         std::string &GetUrl();
         std::unordered_map<std::string,std::string> &GetHeaders();
-        std::vector<std::string> &Getcookies();
+        std::vector<std::string> &GetCookies();
         void AddHeader(const std::string &key, const std::string &value);
         void SetCookie(const std::string &cookie);
         void SetContent(Stream *content, const std::string &contentType);
@@ -250,7 +251,7 @@ namespace Http
         Response();
         StatusCode GetStatus() const;
         std::unordered_map<std::string,std::string> &GetHeaders();
-        std::vector<std::string> &Getcookies();
+        std::vector<std::string> &GetCookies();
         ContentStream *GetContent() const;
         bool GetContentAsString(std::string &str);
         uint64_t GetContentLength() const;

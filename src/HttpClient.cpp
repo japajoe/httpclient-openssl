@@ -518,6 +518,17 @@ namespace Http
         }
     }
 
+    int64_t ContentStream::Peek(void *buffer, size_t size)
+    {
+        if(!socket || !buffer || size == 0)
+            return 0;
+        
+        if(ssl)
+            return SSL_peek(ssl, buffer, size);
+        else
+            return socket->Peek(buffer, size);
+    }
+
     int64_t ContentStream::ReadInternal(void *buffer, size_t size)
     {
         if (socket == nullptr)
@@ -556,26 +567,51 @@ namespace Http
 
     std::string ContentStream::ReadLineInternal()
     {
+        char buffer[1024];
+        int64_t peeked = Peek(buffer, sizeof(buffer));
+
+        if (peeked <= 0)
+            return "";
+
+        // Scan the peeked data for the newline character
+        for (int64_t i = 0; i < peeked; ++i)
+        {
+            if (buffer[i] == '\n')
+            {
+                int64_t lineLength = i + 1;
+                std::string line;
+                line.resize(lineLength);
+
+                // Now pull the exact amount out of the socket for real
+                ReadInternal(&line[0], lineLength);
+
+                // Trim \r\n or just \n
+                if (lineLength >= 2 && line[lineLength - 2] == '\r')
+                {
+                    return line.substr(0, lineLength - 2);
+                }
+                
+                return line.substr(0, lineLength - 1);
+            }
+        }
+
+        // If no newline was found in the first 1024 bytes, 
+        // we fall back to reading character by character until we find it.
         std::string line;
         char c;
-        const size_t maxLineLength = 4096; // Standard HTTP limit is usually 8KB
-
         while (ReadInternal(&c, 1) > 0)
         {
             line += c;
-
-            // Check for line ending
-            if (line.size() >= 2 && line.substr(line.size() - 2) == "\r\n")
+            if (c == '\n')
             {
-                return line.substr(0, line.size() - 2);
-            }
-
-            // Safety break
-            if (line.size() > maxLineLength)
-            {
-                break; 
+                if (line.size() >= 2 && line[line.size() - 2] == '\r')
+                {
+                    return line.substr(0, line.size() - 2);
+                }
+                return line.substr(0, line.size() - 1);
             }
         }
+
         return line;
     }
 
@@ -786,7 +822,7 @@ namespace Http
         return headers;
     }
 
-    std::vector<std::string> &Request::Getcookies()
+    std::vector<std::string> &Request::GetCookies()
     {
         return cookies;
     }
@@ -826,7 +862,7 @@ namespace Http
         return headers;
     }
 
-    std::vector<std::string> &Response::Getcookies()
+    std::vector<std::string> &Response::GetCookies()
     {
         return cookies;
     }

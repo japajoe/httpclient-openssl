@@ -23,8 +23,6 @@ int main()
         {
             std::cout << content << '\n';
         }
-
-        std::cout << content << '\n';
     }
     else
     {
