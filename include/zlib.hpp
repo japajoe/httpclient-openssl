@@ -4,7 +4,7 @@
 namespace Http
 {
     #if defined(HTTP_PLATFORM_WINDOWS)
-    #define ZLIB_VERSION "1.2.3"
+    #define ZLIB_VERSION "1.3.1"
     #else
     #define ZLIB_VERSION "1.3.2"
     #endif
