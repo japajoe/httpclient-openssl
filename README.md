@@ -2,7 +2,7 @@
 
 Binaries for Windows and Linux can be found in `runtimes` folder. Copy the files to the same directory as the executable so it can be found when the program runs.
 
-# example
+# Example
 
 ```cpp
 #include "HttpClient.hpp"
