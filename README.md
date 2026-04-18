@@ -5,7 +5,7 @@ Binaries for Windows and Linux can be found in `runtimes` folder. Copy the files
 # Example
 
 ```cpp
-#include "HttpClient.hpp"
+#include <HttpClient/HttpClient.hpp>
 #include <iostream>
 
 int main()
