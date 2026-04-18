@@ -33,7 +33,7 @@ int main()
     }
     else
     {
-        std::cout << "Status: " << (int)response->GetStatus() << '\n';
+        std::cout << "StatusCode: " << (int)response->GetStatus() << '\n';
     }
 
     return 0;
