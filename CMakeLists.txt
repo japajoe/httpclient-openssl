@@ -22,11 +22,7 @@ endif()
 
 file(GLOB_RECURSE SOURCES src/*.cpp)
 
-include_directories(
-    "${PROJECT_SOURCE_DIR}/include/"
-)
-
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_library(${PROJECT_NAME} STATIC ${SOURCES})
 
 if(UNIX)
     set(DLL_DIR "${PROJECT_SOURCE_DIR}/runtimes")
@@ -67,3 +63,7 @@ elseif(WIN32)
         target_link_libraries(${PROJECT_NAME} ws2_32)
     endif()
 endif()
+
+target_include_directories(${PROJECT_NAME} PUBLIC 
+    "${PROJECT_SOURCE_DIR}/include/HttpClient"
+)

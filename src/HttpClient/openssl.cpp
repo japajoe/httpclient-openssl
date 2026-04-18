@@ -17,6 +17,7 @@ namespace Http
     typedef int (*SSL_set_fd_t)(SSL *s, int fd);
     typedef long (*SSL_ctrl_t)(SSL *ssl, int cmd, long larg, void *parg);
     typedef int (*SSL_connect_t)(SSL *ssl);
+    typedef int (*SSL_accept_t)(SSL *ssl);
     typedef int (*SSL_read_t)(SSL *ssl, void *buf, int num);
     typedef int (*SSL_write_t)(SSL *ssl, const void *buf, int num);
     typedef int (*SSL_peek_t)(SSL *ssl, void *buf, int num);
@@ -35,6 +36,7 @@ namespace Http
     static SSL_set_fd_t SSL_set_fd_ptr = nullptr;
     static SSL_ctrl_t SSL_ctrl_ptr = nullptr;
     static SSL_connect_t SSL_connect_ptr = nullptr;
+    static SSL_accept_t SSL_accept_ptr = nullptr;
     static SSL_read_t SSL_read_ptr = nullptr;
     static SSL_write_t SSL_write_ptr = nullptr;
     static SSL_peek_t SSL_peek_ptr = nullptr;
@@ -99,6 +101,7 @@ namespace Http
         SSL_set_fd_ptr = (SSL_set_fd_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_set_fd");
         SSL_ctrl_ptr = (SSL_ctrl_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_ctrl");
         SSL_connect_ptr = (SSL_connect_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_connect");
+        SSL_accept_ptr = (SSL_accept_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_accept");
         SSL_read_ptr = (SSL_read_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_read");
         SSL_write_ptr = (SSL_write_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_write");
         SSL_peek_ptr = (SSL_peek_t)Runtime::GetSymbol(pLibraryHandleSsl, "SSL_peek");
@@ -161,6 +164,11 @@ namespace Http
     int SSL_connect(SSL *ssl)
     {
         return SSL_connect_ptr(ssl);
+    }
+
+    int SSL_accept(SSL *ssl)
+    {
+        return SSL_accept(ssl);
     }
 
     int SSL_read(SSL *ssl, void *buf, int num)

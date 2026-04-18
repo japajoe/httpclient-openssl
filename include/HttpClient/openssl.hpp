@@ -28,6 +28,7 @@ namespace Http
     int SSL_set_fd(SSL *s, int fd);
     long SSL_ctrl(SSL *ssl, int cmd, long larg, void *parg);
     int SSL_connect(SSL *ssl);
+    int SSL_accept(SSL *ssl);
     int SSL_read(SSL *ssl, void *buf, int num);
     int SSL_write(SSL *ssl, const void *buf, int num);
     int SSL_peek(SSL *ssl, void *buf, int num);
