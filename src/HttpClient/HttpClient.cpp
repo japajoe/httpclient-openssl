@@ -912,7 +912,6 @@ namespace Http
         if (SSL_library_load())
         {
             sslContext = SSL_CTX_new(TLS_method());
-            std::cout << "libssl loaded\n";
         }
         else
         {
@@ -920,9 +919,7 @@ namespace Http
             std::cout << "Failed to load libssl\n";
         }
 
-        if (zlib_load_library())
-            std::cout << "libz loaded\n";
-        else
+        if (!zlib_load_library())
             std::cout << "Failed to load libz\n";
     }
 
