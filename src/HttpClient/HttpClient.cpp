@@ -225,6 +225,17 @@ namespace Http
         return descriptor;
     }
 
+    SocketError Socket::GetError() const
+    {
+        int32_t error = (int32_t)SOCKET_ERROR;
+        if (error == SOCKET_EGAIN)
+            return SocketError::Again;
+        else if(error == SOCKET_EWOULDBLOCK)
+            return SocketError::WouldBlock;
+        else
+            return SocketError::None;
+    }
+
     // ███████╗████████╗██████╗ ███████╗ █████╗ ███╗   ███╗
     // ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██╔══██╗████╗ ████║
     // ███████╗   ██║   ██████╔╝█████╗  ███████║██╔████╔██║
@@ -747,6 +758,17 @@ namespace Http
     int64_t ContentStream::GetReadOffset()
     {
         return 0;
+    }
+
+    SocketError ContentStream::GetError() const
+    {
+        int32_t error = (int32_t)SOCKET_ERROR;
+        if (error == SOCKET_EGAIN)
+            return SocketError::Again;
+        else if(error == SOCKET_EWOULDBLOCK)
+            return SocketError::WouldBlock;
+        else
+            return SocketError::None;
     }
 
     void ContentStream::Dispose()

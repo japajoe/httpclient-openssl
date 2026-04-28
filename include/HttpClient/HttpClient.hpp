@@ -14,6 +14,13 @@ namespace Http
     typedef void SSL_CTX;
     typedef void SSL;
 
+    enum class SocketError
+    {
+        None = 0,
+        Again = 1,
+        WouldBlock = 2
+    };
+
     class Socket
     {
     public:
@@ -30,6 +37,7 @@ namespace Http
         int64_t Write(const void *buffer, uint64_t size);
         int64_t Peek(void *buffer, size_t size);
         int32_t GetDescriptor() const;
+        SocketError GetError() const;
     private:
         int32_t descriptor;
     };
@@ -201,6 +209,7 @@ namespace Http
         int64_t Write(const void *buffer, size_t size) override;
         int64_t Seek(int64_t offset, SeekOrigin origin) override;
         int64_t GetReadOffset() override;
+        SocketError GetError() const;
         void Dispose();
     private:
         std::shared_ptr<Socket> socket;
