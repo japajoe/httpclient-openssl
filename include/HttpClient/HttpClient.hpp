@@ -18,7 +18,8 @@ namespace Http
     {
         None = 0,
         Again = 1,
-        WouldBlock = 2
+        WouldBlock = 2,
+        Unknown = 3
     };
 
     class Socket

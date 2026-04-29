@@ -762,13 +762,9 @@ namespace Http
 
     SocketError ContentStream::GetError() const
     {
-        int32_t error = (int32_t)SOCKET_ERROR;
-        if (error == SOCKET_EGAIN)
-            return SocketError::Again;
-        else if(error == SOCKET_EWOULDBLOCK)
-            return SocketError::WouldBlock;
-        else
+        if(!socket)
             return SocketError::None;
+        return socket->GetError();
     }
 
     void ContentStream::Dispose()
